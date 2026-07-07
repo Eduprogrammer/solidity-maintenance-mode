@@ -1,66 +1,124 @@
-## Foundry
+# CryptoMarket — Modo Manutenção (Solidity + Foundry)
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+> Da Série Cliente Imaginário #1: "Preciso travar meu contrato sem fazer novo deploy"
 
-Foundry consists of:
+Simulação de um pedido real de cliente: um marketplace de NFTs (**CryptoMarket**) precisa de um mecanismo para pausar transações críticas em caso de bug ou emergência — sem depender de um novo deploy.
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Ainda não tenho clientes reais em Web3. Este projeto faz parte de uma série onde simulo pedidos de clientes e os resolvo com o mesmo rigor que teria em um projeto real: entendimento da dor, arquitetura, testes, deploy local e validação via CLI.
 
-## Documentation
+Artigo completo com o passo a passo: [link do Dev.to]
 
-https://book.getfoundry.sh/
+## O problema
 
-## Usage
+> "Se um bug aparecer no meio da noite, eu preciso conseguir travar as transações imediatamente, sem depender de ninguém, sem precisar rodar um novo deploy. E quando eu resolver, preciso poder destravar do mesmo jeito."
 
-### Build
+## A solução
 
-```shell
-$ forge build
+Um mecanismo de **Modo Manutenção**: um interruptor on-chain que só o dono do contrato pode ligar ou desligar, bloqueando funções críticas enquanto ativo, com consulta pública de status a qualquer momento.
+
+| Função | Quem pode chamar | O que faz |
+|---|---|---|
+| `toggleMaintenance()` | Só o owner | Liga/desliga o modo manutenção |
+| `isUnderMaintenance()` | Qualquer um | Consulta o status atual |
+| `buyNFT()` (exemplo) | Usuários | Só executa se **não** estiver em manutenção |
+
+## Stack
+
+- **Solidity** `^0.8.20`
+- **Foundry** (Forge, Anvil, Cast)
+
+## Contrato
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract CryptoMarket {
+
+    address public owner;
+    bool public maintenanceMode;
+
+    event MaintenanceToggled(bool novoStatus);
+
+    constructor() {
+        owner = msg.sender;
+        maintenanceMode = false;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Apenas o owner pode fazer isso");
+        _;
+    }
+
+    modifier notInMaintenance() {
+        require(!maintenanceMode, "Contrato em manutencao no momento");
+        _;
+    }
+
+    function toggleMaintenance() public onlyOwner {
+        maintenanceMode = !maintenanceMode;
+        emit MaintenanceToggled(maintenanceMode);
+    }
+
+    function isUnderMaintenance() public view returns (bool) {
+        return maintenanceMode;
+    }
+
+    function buyNFT() public notInMaintenance {
+    }
+}
 ```
 
-### Test
+## Testes
 
-```shell
-$ forge test
+8 testes cobrindo deploy, estado inicial, toggle nos dois sentidos, controle de acesso, bloqueio de funções e emissão de eventos.
+
+```bash
+forge test -vvv
 ```
 
-### Format
+Ran 8 tests for test/CryptoMarket.t.sol:CryptoMarketTest
+[PASS] test_BuyNFTFuncionaQuandoOperacional()
+[PASS] test_ComecaOperacional()
+[PASS] test_DeployComOwnerCorreto()
+[PASS] test_EmiteEventoAoAlternar()
+[PASS] test_OwnerConsegueAtivarManutencao()
+[PASS] test_OwnerConsegueDesativarManutencao()
+[PASS] test_RevertBuyNFTQuandoEmManutencao()
+[PASS] test_RevertQuandoNaoOwnerTentaToggle()
+Suite result: ok. 8 passed; 0 failed; 0 skipped
 
-```shell
-$ forge fmt
+## Deploy local (Anvil)
+
+```bash
+anvil
 ```
 
-### Gas Snapshots
-
-```shell
-$ forge snapshot
+```bash
+forge create src/CryptoMarket.sol:CryptoMarket \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key <CHAVE_PRIVADA> \
+  --broadcast
 ```
 
-### Anvil
+## Interagindo via Cast
 
-```shell
-$ anvil
+```bash
+# Consultar status
+cast call <ENDERECO_CONTRATO> "isUnderMaintenance()(bool)" --rpc-url http://127.0.0.1:8545
+
+# Ativar manutenção
+cast send <ENDERECO_CONTRATO> "toggleMaintenance()" --rpc-url http://127.0.0.1:8545 --private-key <CHAVE_OWNER>
+
+# Tentar buyNFT() durante manutenção -> reverte
+cast send <ENDERECO_CONTRATO> "buyNFT()" --rpc-url http://127.0.0.1:8545 --private-key <CHAVE_OWNER>
 ```
 
-### Deploy
+## Autor
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+**Edu** — [LinkedIn](https://linkedin.com/in/educarlos29/) · [GitHub](https://github.com/Eduprogrammer)
 
-### Cast
+---
 
-```shell
-$ cast <subcommand>
-```
+*#solidity #foundry #web3 #blockchain #smartcontracts*
 
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
